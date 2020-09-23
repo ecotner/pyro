@@ -11,6 +11,8 @@ from pyro.distributions.util import broadcast_shape
 from pyro.optim import Adam
 from pyro.infer import SVI, config_enumerate, TraceEnum_ELBO
 
+from data import get_data_loader
+
 
 # helper for making fully-connected neural networks
 def make_fc(dims):
@@ -71,7 +73,7 @@ class Z2LEncoder(nn.Module):
     def forward(self, x):
         h1, h2 = split_in_half(self.fc(x))
         z2_loc, z2_scale = h1[..., :-1], softplus(h2[..., :-1])
-        l_loc, l_scale = h1[..., -1], softplus(h2[..., -1])
+        l_loc, l_scale = h1[..., -1:], softplus(h2[..., -1:])
         return z2_loc, z2_scale, l_loc, l_scale
 
 
@@ -146,7 +148,7 @@ class SCANVI(nn.Module):
             z2_loc, z2_scale = self.z2_decoder(z1, y)
             z2 = pyro.sample("z2", dist.Normal(z2_loc, z2_scale).to_event(1))
 
-            l = pyro.sample("l", dist.LogNormal(self.l_loc, self.l_scale))
+            l = pyro.sample("l", dist.LogNormal(self.l_loc, self.l_scale).expand([1]).to_event(1))
 
             gate, mu = self.x_decoder(z2)
             theta_mu_l = theta * mu * l
@@ -158,7 +160,7 @@ class SCANVI(nn.Module):
         pyro.module("scanvi", self)
         with pyro.plate("batch", len(x)):
             z2_loc, z2_scale, l_loc, l_scale = self.z2l_encoder(x)
-            pyro.sample("l", dist.LogNormal(l_loc, l_scale))
+            pyro.sample("l", dist.LogNormal(l_loc, l_scale).to_event(1))
             z2 = pyro.sample("z2", dist.Normal(z2_loc, z2_scale).to_event(1))
 
             y_logits = self.classifier(z2)
@@ -179,21 +181,18 @@ def main(args):
     # clear param store
     pyro.clear_param_store()
 
-    scanvi = SCANVI(num_genes=10, num_labels=7)
+    scanvi = SCANVI(num_genes=2467, num_labels=4)
     if args.cuda:
         scanvi.cuda()
 
-    X = torch.randn(51, 10)
-    Y = torch.distributions.OneHotCategorical(logits=torch.zeros(7)).sample(sample_shape=(51,))
-
-    print("X, Y", X.shape, Y.shape)
+    dataloader = get_data_loader(batch_size=100)
 
     optim = Adam({"lr": args.learning_rate})
     guide = config_enumerate(scanvi.guide, expand=True)
     svi = SVI(scanvi.model, guide, optim, TraceEnum_ELBO())
 
-    svi.step(X, Y)
-    svi.step(X, None)
+    for x, y in dataloader:
+        svi.step(x, y)
 
 
 if __name__ == "__main__":
