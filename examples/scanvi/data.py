@@ -4,6 +4,7 @@ from scipy import sparse
 
 import scanpy as sc
 import torch
+import torch.nn as nn
 import scvi
 
 
@@ -12,12 +13,12 @@ class BatchDataLoader(object):
     This custom DataLoader allows us to serve mini-batches that are either fully-observed
     or partially-observed but never mixed.
     """
-    def __init__(self, data_x, data_y, batch_size, num_labels=4, missing_label=-1):
+    def __init__(self, data_x, data_y, batch_size, num_classes=4, missing_label=-1):
         super().__init__()
         self.data_x = data_x
         self.data_y = data_y
         self.batch_size = batch_size
-        self.eye = torch.eye(num_labels, dtype=data_x.dtype, device=data_x.device)
+        self.num_classes = num_classes
 
         self.unlabeled = torch.where(data_y == missing_label)[0]
         self.num_unlabeled = self.unlabeled.size(0)
@@ -59,9 +60,12 @@ class BatchDataLoader(object):
 
         for i in range(len(batch_order)):
             _slice = slices[batch_order[i]]
-            if _slice[1]:  # labeled (convert to one-hot)
-                yield self.data_x[_slice[0]], self.eye[self.data_y[_slice[0]]]
-            else:  # unlabeled
+            if _slice[1]:
+                # labeled
+                yield self.data_x[_slice[0]], \
+                      nn.functional.one_hot(self.data_y[_slice[0]], num_classes=self.num_classes)
+            else:
+                # unlabeled
                 yield self.data_x[_slice[0]], None
 
 
