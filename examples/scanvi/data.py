@@ -10,8 +10,8 @@ import scvi
 
 class BatchDataLoader(object):
     """
-    This custom DataLoader allows us to serve mini-batches that are either fully-observed
-    or partially-observed but never mixed.
+    This custom DataLoader serves mini-batches that are either fully-observed (i.e. labeled)
+    or partially-observed (i.e. unlabeled) but never mixed.
     """
     def __init__(self, data_x, data_y, batch_size, num_classes=4, missing_label=-1):
         super().__init__()
@@ -95,7 +95,7 @@ def _get_cell_mask(normalized_adata, gene_set):
     return mask.astype(bool)
 
 
-def get_data_loader(batch_size=100):
+def get_data_loader(batch_size=100, cuda=False):
     """
     Does the necessary preprocessing and returns a BatchDataLoader for the PBMC dataset.
     """
@@ -132,7 +132,10 @@ def get_data_loader(batch_size=100):
     Y = torch.from_numpy(seed_labels).long()
     X = torch.from_numpy(sparse.csr_matrix.todense(adata.X)).float()
 
-    # subsample to a subset of high frequency genes
+    if cuda:
+        X, Y = X.cuda(), Y.cuda()
+
+    # subsample to a subset of high frequency genes using an arbitrary cutoff
     high_freq_genes = X.sum(0) > 2000
     X = X[:, high_freq_genes]
 

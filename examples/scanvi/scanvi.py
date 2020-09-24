@@ -138,17 +138,18 @@ class SCANVI(nn.Module):
     def model(self, x, y=None):
         pyro.module("scanvi", self)
 
-        theta = pyro.param("inverse_dispersion", torch.ones(self.num_genes),
+        theta = pyro.param("inverse_dispersion", x.new_ones(self.num_genes),
                            constraint=constraints.positive)
 
         with pyro.plate("batch", len(x)):
-            z1 = pyro.sample("z1", dist.Normal(0, 1).expand([self.latent_dim]).to_event(1))
-            y = pyro.sample("y", dist.OneHotCategorical(logits=torch.zeros(self.num_labels)))
+            z1 = pyro.sample("z1", dist.Normal(0, x.new_ones(self.latent_dim)).to_event(1))
+            y = pyro.sample("y", dist.OneHotCategorical(logits=x.new_zeros(self.num_labels)))
 
             z2_loc, z2_scale = self.z2_decoder(z1, y)
             z2 = pyro.sample("z2", dist.Normal(z2_loc, z2_scale).to_event(1))
 
-            l = pyro.sample("l", dist.LogNormal(self.l_loc, self.l_scale).expand([1]).to_event(1))
+            l_scale = self.l_scale * x.new_ones(1)
+            l = pyro.sample("l", dist.LogNormal(self.l_loc, l_scale).to_event(1))
 
             gate, mu = self.x_decoder(z2)
             theta_mu_l = theta * mu * l
@@ -185,7 +186,7 @@ def main(args):
     if args.cuda:
         scanvi.cuda()
 
-    dataloader = get_data_loader(batch_size=100)
+    dataloader = get_data_loader(batch_size=100, cuda=args.cuda)
 
     optim = Adam({"lr": args.learning_rate})
     guide = config_enumerate(scanvi.guide, expand=True)
